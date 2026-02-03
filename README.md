@@ -18,7 +18,7 @@ pip install -e .
 3. Run the converter:
 
 ```bash
-ply-to-png --input-dir input --output-dir output
+ply-to-png
 ```
 
 PNG files will be written to `output/` with the same base filename.
@@ -26,6 +26,7 @@ PNG files will be written to `output/` with the same base filename.
 ## Notes
 
 - Rendering is a 2D projection of the 3D vertices (point cloud view). This keeps the tool lightweight and avoids GPU requirements.
+- Input is always read from `input/` and output is always written to `output/`.
 - You can choose the projection plane (XY, XZ, YZ) and control image size, background, and point size.
 
 ## CLI Options

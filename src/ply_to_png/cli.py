@@ -154,16 +154,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="Convert .ply files to .png images.",
     )
     parser.add_argument(
-        "--input-dir",
-        default="input",
-        help="Directory containing .ply files (default: input)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="output",
-        help="Directory to write .png files (default: output)",
-    )
-    parser.add_argument(
         "--projection",
         choices=["xy", "xz", "yz"],
         default="xy",
@@ -215,8 +205,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    input_dir = Path(args.input_dir)
-    output_dir = Path(args.output_dir)
+    input_dir = Path("input")
+    output_dir = Path("output")
 
     if not input_dir.exists():
         print(f"Input directory not found: {input_dir}", file=sys.stderr)
