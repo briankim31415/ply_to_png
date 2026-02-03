@@ -1,0 +1,22 @@
+# Virtual environments
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Test/cache
+tox/
+.pytest_cache/
+
+# Project data (not tracked)
+input/
+output/
+
+# OS
+.DS_Store

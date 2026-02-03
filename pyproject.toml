@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ply-to-png"
+version = "0.1.0"
+description = "Convert .ply files to .png images."
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = ["ply", "png", "pointcloud", "mesh", "conversion"]
+dependencies = [
+  "numpy>=1.23",
+  "matplotlib>=3.7",
+  "plyfile>=0.9"
+]
+
+[project.scripts]
+ply-to-png = "ply_to_png.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
