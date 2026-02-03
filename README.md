@@ -25,12 +25,19 @@ PNG files will be written to `output/` with the same base filename.
 
 ## Notes
 
-- Rendering is a 2D projection of the 3D vertices (point cloud view). This keeps the tool lightweight and avoids GPU requirements.
+- Rendering is a 2D projection. If faces are present in the PLY, the tool renders filled triangles; otherwise it falls back to a point cloud view.
 - Input is always read from `input/` and output is always written to `output/`.
 - You can choose the projection plane (XY, XZ, YZ) and control image size, background, and point size.
+- Color mode defaults to `auto`: use vertex colors if present, otherwise depth-based coloring.
 
 ## CLI Options
 
 ```bash
 ply-to-png --help
+```
+
+For debugging geometry differences, run:
+
+```bash
+ply-to-png --debug
 ```

@@ -12,6 +12,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.tri as mtri
+from matplotlib.collections import PolyCollection
 
 
 def parse_image_size(value: str) -> Tuple[int, int]:
@@ -36,7 +38,37 @@ def iter_ply_files(input_dir: Path) -> Iterable[Path]:
             yield path
 
 
-def load_vertices(path: Path) -> np.ndarray:
+def _extract_vertex_colors(vertex: PlyData) -> np.ndarray | None:
+    names = vertex.data.dtype.names or ()
+    candidate_sets = [
+        ("red", "green", "blue", "alpha"),
+        ("red", "green", "blue"),
+        ("r", "g", "b", "a"),
+        ("r", "g", "b"),
+        ("diffuse_red", "diffuse_green", "diffuse_blue"),
+        ("diffuse_r", "diffuse_g", "diffuse_b"),
+    ]
+
+    chosen = None
+    for candidate in candidate_sets:
+        if all(name in names for name in candidate):
+            chosen = candidate
+            break
+
+    if chosen is None:
+        return None
+
+    channels = [np.asarray(vertex[name], dtype=float) for name in chosen]
+    colors = np.column_stack(channels)
+    max_val = float(np.max(colors)) if colors.size else 0.0
+    if max_val > 1.0:
+        denom = 255.0 if max_val <= 255.0 else max_val
+        colors = colors / denom
+
+    return np.clip(colors, 0.0, 1.0)
+
+
+def load_ply_data(path: Path) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
     ply = PlyData.read(str(path))
     if "vertex" not in ply:
         raise ValueError("PLY file has no vertex element")
@@ -54,7 +86,44 @@ def load_vertices(path: Path) -> np.ndarray:
     else:
         z = np.zeros_like(x, dtype=float)
 
-    return np.column_stack((x, y, z))
+    points = np.column_stack((x, y, z))
+    colors = _extract_vertex_colors(vertex)
+
+    triangles = None
+    if "face" in ply:
+        face = ply["face"]
+        face_names = face.data.dtype.names or ()
+        face_indices_name = None
+        for name in face_names:
+            data = face[name]
+            if len(data) == 0:
+                continue
+            first = data[0]
+            try:
+                iter(first)
+            except TypeError:
+                continue
+            face_indices_name = name
+            break
+
+        if face_indices_name is not None:
+            triangles_list = []
+            for indices in face[face_indices_name]:
+                arr = np.asarray(indices, dtype=int).ravel()
+                if arr.size < 3:
+                    continue
+                if np.any(arr < 0) or np.any(arr >= points.shape[0]):
+                    continue
+                if arr.size == 3:
+                    triangles_list.append(arr)
+                else:
+                    for i in range(1, arr.size - 1):
+                        triangles_list.append([arr[0], arr[i], arr[i + 1]])
+
+            if triangles_list:
+                triangles = np.asarray(triangles_list, dtype=int)
+
+    return points, triangles, colors
 
 
 def project_points(points: np.ndarray, projection: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -93,6 +162,8 @@ def render_png(
     depth: np.ndarray,
     output_path: Path,
     *,
+    triangles: np.ndarray | None,
+    colors: np.ndarray | None,
     image_size: Tuple[int, int],
     point_size: float,
     color_mode: str,
@@ -112,10 +183,30 @@ def render_png(
 
     _apply_limits(ax, u, v)
 
-    if color_mode == "depth":
-        ax.scatter(u, v, c=depth, cmap="viridis", s=point_size, linewidths=0)
+    use_vertex_colors = color_mode in {"auto", "vertex"} and colors is not None
+
+    if triangles is not None:
+        if use_vertex_colors:
+            points_2d = np.column_stack((u, v))
+            tri_points = points_2d[triangles]
+            tri_colors = colors[triangles].mean(axis=1)
+            collection = PolyCollection(tri_points, facecolors=tri_colors, edgecolors="none")
+            ax.add_collection(collection)
+        elif color_mode == "depth":
+            triangulation = mtri.Triangulation(u, v, triangles)
+            ax.tripcolor(triangulation, depth, shading="gouraud", cmap="viridis")
+        else:
+            points_2d = np.column_stack((u, v))
+            tri_points = points_2d[triangles]
+            collection = PolyCollection(tri_points, facecolors=color, edgecolors="none")
+            ax.add_collection(collection)
     else:
-        ax.scatter(u, v, c=color, s=point_size, linewidths=0)
+        if use_vertex_colors:
+            ax.scatter(u, v, c=colors, s=point_size, linewidths=0)
+        elif color_mode == "depth":
+            ax.scatter(u, v, c=depth, cmap="viridis", s=point_size, linewidths=0)
+        else:
+            ax.scatter(u, v, c=color, s=point_size, linewidths=0)
 
     fig.savefig(output_path, dpi=dpi, pad_inches=0)
     plt.close(fig)
@@ -132,14 +223,33 @@ def convert_file(
     color: str,
     background: str,
     dpi: int,
+    debug: bool,
 ) -> None:
-    points = load_vertices(input_path)
+    points, triangles, colors = load_ply_data(input_path)
+    if color_mode == "vertex" and colors is None:
+        raise ValueError("PLY file has no vertex color data")
     u, v, depth = project_points(points, projection)
+    if debug:
+        bounds_min = points.min(axis=0)
+        bounds_max = points.max(axis=0)
+        tri_count = 0 if triangles is None else len(triangles)
+        color_channels = 0 if colors is None else colors.shape[1]
+        print(
+            "Debug:",
+            f"vertices={points.shape[0]}",
+            f"triangles={tri_count}",
+            f"color_channels={color_channels}",
+            f"bounds=({bounds_min[0]:.3f},{bounds_min[1]:.3f},{bounds_min[2]:.3f})",
+            f"to ({bounds_max[0]:.3f},{bounds_max[1]:.3f},{bounds_max[2]:.3f})",
+            f"projection={projection}",
+        )
     render_png(
         u,
         v,
         depth,
         output_path,
+        triangles=triangles,
+        colors=colors,
         image_size=image_size,
         point_size=point_size,
         color_mode=color_mode,
@@ -173,9 +283,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--color-mode",
-        choices=["depth", "uniform"],
-        default="depth",
-        help="Color points by depth or use a single color",
+        choices=["auto", "depth", "uniform", "vertex"],
+        default="auto",
+        help="Coloring mode: auto uses vertex colors if present, else depth",
     )
     parser.add_argument(
         "--color",
@@ -197,6 +307,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--overwrite",
         action="store_true",
         help="Overwrite existing .png files",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print per-file vertex/triangle counts and bounds",
     )
     return parser
 
@@ -237,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
                 color=args.color,
                 background=args.background,
                 dpi=args.dpi,
+                debug=args.debug,
             )
             print(f"Wrote {output_path}")
         except Exception as exc:
